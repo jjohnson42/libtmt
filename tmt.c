@@ -55,13 +55,14 @@ struct TMT{
     TMTPOINT curs, oldcurs;
     TMTATTRS attrs, oldattrs;
 
-    bool dirty, acs, ignored;
+    bool dirty, acs, decdraw, ignored;
     TMTSCREEN screen;
     TMTLINE *tabs;
 
     TMTCALLBACK cb;
     void *p;
     const wchar_t *acschars;
+    const wchar_t *decchars;
 
     mbstate_t ms;
     size_t nmb;
@@ -70,11 +71,19 @@ struct TMT{
     size_t pars[PAR_MAX];   
     size_t npar;
     size_t arg;
-    enum {S_NUL, S_ESC, S_ARG} state;
+    enum {S_NUL, S_ESC, S_ARG, S_SCS} state;
 };
 
 static TMTATTRS defattrs = {.fg = TMT_COLOR_DEFAULT, .bg = TMT_COLOR_DEFAULT};
 static void writecharatcurs(TMT *vt, wchar_t w);
+
+static wchar_t
+decchar(const TMT *vt, unsigned char c)
+{
+    if (c > 94 && c < 127)
+        return vt->decchars[c - 95];
+    return (wchar_t)c;
+}
 
 static wchar_t
 tacs(const TMT *vt, unsigned char c)
@@ -273,7 +282,10 @@ handlechar(TMT *vt, char i)
     DO(S_ESC, "H",          t[c->c].c = L'*')
     DO(S_ESC, "7",          vt->oldcurs = vt->curs; vt->oldattrs = vt->attrs)
     DO(S_ESC, "8",          vt->curs = vt->oldcurs; vt->attrs = vt->oldattrs)
-    ON(S_ESC, "+*()",       vt->ignored = true; vt->state = S_ARG)
+    ON(S_ESC, "+*)",        vt->ignored = true; vt->state = S_ARG)
+    ON(S_ESC, "(",          vt->state = S_SCS)
+    DO(S_SCS, "0",          vt->decdraw = true)
+    DO(S_SCS, "B",          vt->decdraw = false)
     DO(S_ESC, "c",          tmt_reset(vt))
     DO(S_ESC, "M",          if (c->r) c->r--)
     ON(S_ESC, "[",          vt->state = S_ARG)
@@ -350,7 +362,8 @@ tmt_open(size_t nline, size_t ncol, TMTCALLBACK cb, void *p,
     if (!nline || !ncol || !vt) return free(vt), NULL;
 
     /* ASCII-safe defaults for box-drawing characters. */
-    vt->acschars = acs? acs : L"><^v#+:o##+++++~---_++++|<>*!fo";
+    vt->acschars = acs? acs : L"→←↑↓■◆▒°±▒┘┐┌└┼⎺───⎽├┤┴┬│≤≥π≠£•"; //L"><^v#+:o##+++++~---_++++|<>*!fo";
+    vt->decchars = L" ◆▒\t\f\r\n°±\n\v┘┐┌└┼⎺⎻─⎼⎽├┤┴┬│≤≥π≠£•";
     vt->cb = cb;
     vt->p = p;
 
@@ -458,6 +471,8 @@ tmt_write(TMT *vt, const char *s, size_t n)
             continue;
         else if (vt->acs)
             writecharatcurs(vt, tacs(vt, (unsigned char)s[p]));
+        else if (vt->decdraw)
+            writecharatcurs(vt, decchar(vt, (unsigned char)s[p]));
         else if (vt->nmb >= BUF_MAX)
             writecharatcurs(vt, getmbchar(vt));
         else{
