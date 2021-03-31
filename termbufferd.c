@@ -55,6 +55,7 @@ TMT *set_termentbyname(char *name) {
 
 void dump_vt(TMT* outvt) {
     const TMTSCREEN *out = tmt_screen(outvt);
+    const TMTPOINT *curs = tmt_cursor(outvt);
     int line, idx, deferredlines, deferredspaces;
     bool printedline;
     deferredlines = 0;
@@ -82,6 +83,8 @@ void dump_vt(TMT* outvt) {
         else
             deferredlines  += 1;
     }
+    fflush(stdout);
+    wprintf(L"\x1b[%ld;%ldH", curs->r, curs->c);
     fflush(stdout);
     write(1, "\x00", 1);
 }
