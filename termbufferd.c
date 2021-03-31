@@ -24,7 +24,7 @@ unsigned long hash(char *str)
     unsigned long idx = 5381;
     int c;
 
-    while (c = *str++)
+    while ((c = *str++))
         idx = ((idx << 5) + idx) + c;
     return idx % HASHSIZE;
 }
@@ -58,6 +58,7 @@ void dump_vt(TMT* outvt) {
     const TMTPOINT *curs = tmt_cursor(outvt);
     int line, idx, deferredlines, deferredspaces;
     bool printedline;
+    wprintf(L"\033[H\033[J");
     deferredlines = 0;
     for (line = 0; line < out->nline; line++) {
         deferredspaces = 0;
@@ -84,9 +85,12 @@ void dump_vt(TMT* outvt) {
             deferredlines  += 1;
     }
     fflush(stdout);
-    wprintf(L"\x1b[%ld;%ldH", curs->r, curs->c);
+    wprintf(L"\x1b[%ld;%ldH", curs->r + 1, curs->c + 1);
     fflush(stdout);
-    write(1, "\x00", 1);
+    idx = write(1, "\x00", 1);
+    if (idx < 0) {
+        return;
+    }
 }
 
 int main(int argc, char* argv[]) {
@@ -96,24 +100,35 @@ int main(int argc, char* argv[]) {
     char currnode[MAXNAMELEN];
     TMT *currvt = NULL;
     TMT *outvt = NULL;
-    freopen(NULL, "rb", stdin);
+    stdin = freopen(NULL, "rb", stdin);
+    if (stdin == NULL) {
+        exit(1);
+    }
     while (1) {
-        fread(&cmd, 4, 1, stdin);
+        length = fread(&cmd, 4, 1, stdin);
+        if (length < 0)
+            continue;
         length = cmd & 536870911;
         cmd = cmd >> 29;
         if (cmd == SETNODE) {
             currnode[length] = 0;
-            fread(currnode, 1, length, stdin);
+            cmd = fread(currnode, 1, length, stdin);
+            if (cmd < 0)
+                continue;
             currvt = set_termentbyname(currnode);
         } else if (cmd == WRITE) {
             if (currvt == NULL)
                 currvt = set_termentbyname("");
             cmdbuf[length] = 0;
-            fread(cmdbuf, 1, length, stdin);
+            cmd = fread(cmdbuf, 1, length, stdin);
+            if (cmd < 0)
+                continue;
             tmt_write(currvt, cmdbuf, length);
         } else if (cmd == READBUFF) {
             cmdbuf[length] = 0;
-            fread(cmdbuf, 1, length, stdin);
+            cmd = fread(cmdbuf, 1, length, stdin);
+            if (cmd < 0)
+                continue;
             outvt = get_termentbyname(cmdbuf);
             if (outvt != NULL) {
                 dump_vt(outvt);
