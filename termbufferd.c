@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <locale.h>
+#include <unistd.h>
 #include "tmt.h"
 #define HASHSIZE 2053
 #define MAXNAMELEN 256
@@ -54,13 +55,35 @@ TMT *set_termentbyname(char *name) {
 
 void dump_vt(TMT* outvt) {
     const TMTSCREEN *out = tmt_screen(outvt);
-    int line, idx;
+    int line, idx, deferredlines, deferredspaces;
+    bool printedline;
+    deferredlines = 0;
     for (line = 0; line < out->nline; line++) {
-        for (idx = 0; idx < out->ncol; idx++)
-            wprintf(L"%lc", out->lines[line]->chars[idx].c);
-        wprintf(L"\r\n");
+        deferredspaces = 0;
+        printedline = false;
+        for (idx = 0; idx < out->ncol; idx++) {
+            if (out->lines[line]->chars[idx].c == L' ') {
+                deferredspaces += 1;
+            } else {
+                while (deferredlines) {
+                    wprintf(L"\r\n");
+                    deferredlines -= 1;
+                }
+                while (deferredspaces > 0) {
+                    wprintf(L" ");
+                    deferredspaces -= 1;
+                }
+                printedline = true;
+                wprintf(L"%lc", out->lines[line]->chars[idx].c);
+            }
+        }
+        if (printedline)
+            wprintf(L"\r\n");
+        else
+            deferredlines  += 1;
     }
     fflush(stdout);
+    write(1, "\x00", 1);
 }
 
 int main(int argc, char* argv[]) {
@@ -71,7 +94,6 @@ int main(int argc, char* argv[]) {
     TMT *currvt = NULL;
     TMT *outvt = NULL;
     freopen(NULL, "rb", stdin);
-    freopen(NULL, "wb", stdout);
     while (1) {
         fread(&cmd, 4, 1, stdin);
         length = cmd & 536870911;
